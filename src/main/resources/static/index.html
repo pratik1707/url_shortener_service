@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SDLC Orchestrator</title>
+<style>
+  :root {
+    --bg: #0f1117; --panel: #171a23; --line: #262b38; --text: #e6e8ee;
+    --muted: #8b93a7; --accent: #4f8cff; --ok: #35c07f; --warn: #e0a33e;
+    --bad: #e2585f; --pend: #5a6275;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .panel { background: var(--panel); border: 1px solid var(--line);
+           border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  label { display: block; font-size: 12px; color: var(--muted);
+          text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+  textarea, select, input {
+    width: 100%; background: #0d0f15; color: var(--text);
+    border: 1px solid var(--line); border-radius: 7px; padding: 10px; font: inherit; }
+  textarea { min-height: 64px; resize: vertical; }
+  .row { display: flex; gap: 12px; align-items: flex-end; margin-top: 12px; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 180px; }
+  button { background: var(--accent); color: #fff; border: 0; border-radius: 7px;
+           padding: 10px 18px; font: inherit; font-weight: 600; cursor: pointer; }
+  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--text); }
+  button.ok { background: var(--ok); }
+  button.bad { background: var(--bad); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  .stages { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+  .stage { border: 1px solid var(--line); border-radius: 7px; padding: 8px 12px;
+           min-width: 132px; background: #0d0f15; }
+  .stage .name { font-weight: 600; font-size: 12px; letter-spacing: .04em; }
+  .stage .st { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .stage.COMPLETED { border-color: var(--ok); }
+  .stage.COMPLETED .st { color: var(--ok); }
+  .stage.RUNNING { border-color: var(--accent); }
+  .stage.RUNNING .st { color: var(--accent); }
+  .stage.AWAITING_APPROVAL { border-color: var(--warn); }
+  .stage.AWAITING_APPROVAL .st { color: var(--warn); }
+  .stage.FAILED, .stage.REJECTED { border-color: var(--bad); }
+  .stage.FAILED .st, .stage.REJECTED .st { color: var(--bad); }
+  .stage.ROLLED_BACK { border-color: var(--warn); border-style: dashed; }
+  .stage.NOT_REQUIRED, .stage.SKIPPED { border-style: dotted; opacity: .6; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th { text-align: left; color: var(--muted); font-weight: 500;
+       border-bottom: 1px solid var(--line); padding: 6px 8px; }
+  td { padding: 6px 8px; border-bottom: 1px solid #1d2130; vertical-align: top; }
+  td.type { white-space: nowrap; font-weight: 600; }
+  .metrics { display: flex; gap: 24px; flex-wrap: wrap; }
+  .metric .v { font-size: 20px; font-weight: 600; }
+  .metric .k { font-size: 11px; color: var(--muted); text-transform: uppercase; }
+  .gate { border: 1px solid var(--warn); background: #1d1a12;
+          border-radius: 8px; padding: 12px; margin-top: 12px; }
+  .muted { color: var(--muted); }
+  .pill { display: inline-block; font-size: 11px; padding: 2px 8px;
+          border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+  pre { margin: 4px 0 0; white-space: pre-wrap; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>SDLC Orchestrator</h1>
+  <p class="sub">Give it a requirement. It plans, waits for your approval, implements, tests and documents, then waits for approval again before release - retrying, falling back, re-planning or rolling back when things go wrong.</p>
+
+  <div class="panel">
+    <label for="req">Requirement</label>
+    <textarea id="req">migrate short code generation from the hash strategy to the counter strategy</textarea>
+    <div class="row">
+      <div>
+        <label for="scenario">Scenario</label>
+        <select id="scenario">
+          <option value="brownfield">brownfield - change existing code</option>
+          <option value="greenfield">greenfield - new feature</option>
+          <option value="ambiguous">ambiguous - under-specified</option>
+        </select>
+      </div>
+      <div style="flex:0 0 auto"><button id="run">Run</button></div>
+    </div>
+  </div>
+
+  <div class="panel" id="runPanel" style="display:none">
+    <div class="row" style="margin:0 0 12px">
+      <div><span class="pill" id="runId"></span> <span class="pill" id="runStatus"></span></div>
+      <div style="flex:0 0 auto"><button class="ghost" id="stop">Safe stop</button></div>
+    </div>
+    <div class="stages" id="stages"></div>
+    <div class="gate" id="gate" style="display:none">
+      <strong id="gateTitle">Approval required</strong>
+      <pre id="gatePlan"></pre>
+      <div class="row">
+        <div style="flex:0 0 auto"><button class="ok" id="approve">Approve</button></div>
+        <div style="flex:0 0 auto"><button class="bad" id="reject">Reject</button></div>
+      </div>
+      <div class="row">
+        <div style="flex:2 1 260px"><input id="feedback" placeholder="what should change? (sent back for re-planning)"></div>
+        <div style="flex:0 0 150px">
+          <select id="fromStage">
+            <option value="DESIGN">re-plan from DESIGN</option>
+            <option value="REQUIREMENTS">re-plan from REQUIREMENTS</option>
+          </select>
+        </div>
+        <div style="flex:0 0 auto"><button class="ghost" id="revise">Request changes</button></div>
+      </div>
+      <div class="muted" id="gateNote"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="auditPanel" style="display:none">
+    <label>Audit trail</label>
+    <table><thead><tr><th>Time</th><th>Event</th><th>Stage</th><th>Actor</th><th>Detail</th></tr></thead>
+      <tbody id="audit"></tbody></table>
+  </div>
+
+  <div class="panel">
+    <label>Reliability</label>
+    <div class="metrics" id="metrics"><span class="muted">no runs yet</span></div>
+  </div>
+
+  <div class="panel">
+    <label>Shorten a URL</label>
+    <div class="row">
+      <div style="flex:2 1 260px"><input id="longUrl" placeholder="https://example.com/a/very/long/link"></div>
+      <div style="flex:1 1 150px"><input id="alias" placeholder="alias (7-16 chars, optional)"></div>
+      <div style="flex:0 0 110px"><input id="ttl" type="number" placeholder="ttl (s)"></div>
+      <div style="flex:0 0 auto"><button class="ghost" id="shorten">Shorten</button></div>
+    </div>
+    <pre id="shortResult"></pre>
+    <div class="row" id="statsRow" style="display:none">
+      <div style="flex:0 0 auto"><button class="ghost" id="hit">Follow it</button></div>
+      <div style="flex:0 0 auto"><button class="ghost" id="stats">Stats</button></div>
+    </div>
+    <pre id="statsResult"></pre>
+  </div>
+
+</div>
+<script>
+let currentRun = null, poller = null;
+
+const $ = id => document.getElementById(id);
+const api = (url, opts) => fetch(url, opts).then(r => r.json());
+
+$('run').onclick = async () => {
+  const body = { requirement: $('req').value, scenario: $('scenario').value };
+  const res = await api('/orchestrator/runs', {
+    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+  });
+  currentRun = res.runId;
+  $('runPanel').style.display = 'block';
+  $('auditPanel').style.display = 'block';
+  startPolling();
+};
+
+$('approve').onclick = () => decide('approve');
+$('reject').onclick  = () => decide('reject');
+$('stop').onclick    = () => decide('stop');
+
+$('revise').onclick = async () => {
+  if (!currentRun) return;
+  const feedback = $('feedback').value.trim();
+  if (!feedback) { $('gateNote').textContent = 'Write what should change first.'; return; }
+  const res = await fetch(`/orchestrator/runs/${currentRun}/revise`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ actor: 'operator', reason: feedback, fromStage: $('fromStage').value })
+  });
+  const body = await res.json();
+  $('gateNote').textContent = res.ok ? '' : body.detail;
+  if (res.ok) { $('feedback').value = ''; startPolling(); }
+};
+
+async function decide(action) {
+  if (!currentRun) return;
+  await fetch(`/orchestrator/runs/${currentRun}/${action}`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ actor: 'operator', reason: 'decided from the console' })
+  });
+  refresh();
+}
+
+function startPolling() {
+  if (poller) clearInterval(poller);
+  refresh();
+  poller = setInterval(refresh, 700);
+}
+
+async function refresh() {
+  if (!currentRun) return;
+  const run = await api('/orchestrator/runs/' + currentRun);
+
+  $('runId').textContent = run.runId;
+  $('runStatus').textContent = run.status;
+
+  $('stages').innerHTML = run.stages.map(s => `
+    <div class="stage ${s.status}">
+      <div class="name">${s.stage}</div>
+      <div class="st">${s.status}${s.attempts > 1 ? ' &middot; ' + s.attempts + ' attempts' : ''}${s.usedFallback ? ' &middot; fallback' : ''}</div>
+      ${s.durationMs != null ? `<div class="st">${s.durationMs} ms</div>` : ''}
+    </div>`).join('');
+
+  const gate = run.stages.find(s => s.status === 'AWAITING_APPROVAL');
+  $('gate').style.display = gate ? 'block' : 'none';
+  if (gate) {
+    const find = name => run.stages.find(s => s.stage === name) || {};
+    if (gate.stage === 'RELEASE_APPROVAL') {
+      $('gateTitle').textContent = 'Release approval required';
+      $('gatePlan').textContent = ['IMPLEMENT', 'TEST', 'DOCS'].map(name => {
+        const s = find(name);
+        return `${name} (${s.status}${s.usedFallback ? ', fallback' : ''}): ${s.output || '-'}`;
+      }).join('\n\n');
+    } else {
+      $('gateTitle').textContent = 'Plan approval required';
+      const req = find('REQUIREMENTS'), design = find('DESIGN');
+      $('gatePlan').textContent = (req.output || '') + '\n\n' + (design.output || 'no plan recorded');
+    }
+    $('gateNote').textContent = run.revisions ? `revision ${run.revisions} - last feedback: ${run.reviewerFeedback}` : '';
+  }
+
+  $('audit').innerHTML = run.audit.map(e => `
+    <tr><td class="muted">${e.at.substring(11,19)}</td>
+        <td class="type">${e.eventType}</td>
+        <td class="muted">${e.stage || ''}</td>
+        <td class="muted">${e.actor}</td>
+        <td>${e.detail ? escapeHtml(e.detail) : ''}</td></tr>`).join('');
+
+  const terminal = ['COMPLETED','FAILED','REJECTED','ROLLED_BACK','STOPPED'];
+  if (terminal.includes(run.status) && poller) { clearInterval(poller); poller = null; }
+
+  loadMetrics();
+}
+
+async function loadMetrics() {
+  const m = await api('/orchestrator/metrics');
+  $('metrics').innerHTML = `
+    <div class="metric"><div class="v">${(m.successRate*100).toFixed(0)}%</div><div class="k">success rate</div></div>
+    <div class="metric"><div class="v">${m.retryCount}</div><div class="k">retries</div></div>
+    <div class="metric"><div class="v">${(m.rollbackRate*100).toFixed(0)}%</div><div class="k">rollback rate</div></div>
+    <div class="metric"><div class="v">${m.fallbackCount}</div><div class="k">fallbacks</div></div>
+    <div class="metric"><div class="v">${m.replanCount}</div><div class="k">re-plans</div></div>
+    <div class="metric"><div class="v">${Math.round(m.mttrMillis)} ms</div><div class="k">mttr</div></div>
+    <div class="metric"><div class="v">${m.endToEndP95Millis} ms</div><div class="k">p95 end to end</div></div>
+    <div class="metric"><div class="v">${m.runsTotal}</div><div class="k">runs</div></div>`;
+}
+
+let lastCode = null;
+
+$('shorten').onclick = async () => {
+  const body = { url: $('longUrl').value };
+  const alias = $('alias').value.trim();
+  if (alias) body.alias = alias;
+  const ttl = parseInt($('ttl').value, 10);
+  if (!isNaN(ttl)) body.ttlSeconds = ttl;
+
+  const res = await fetch('/urls', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+  });
+  const json = await res.json();
+
+  if (res.ok) {
+    lastCode = json.shortCode;
+    $('statsRow').style.display = 'flex';
+    $('shortResult').textContent =
+      `${json.shortUrl}\nstrategy: ${json.strategy}` +
+      (json.expiresAt ? `\nexpires: ${json.expiresAt}` : '\nnever expires');
+  } else {
+    lastCode = null;
+    $('statsRow').style.display = 'none';
+    $('shortResult').textContent = `${res.status} ${json.detail || ''}`;
+  }
+  $('statsResult').textContent = '';
+};
+
+// Fetch is followed with redirect:'manual' so we see the 302 itself rather than
+// chasing it out to the real internet.
+$('hit').onclick = async () => {
+  if (!lastCode) return;
+  const res = await fetch('/' + lastCode, { redirect: 'manual' });
+  $('statsResult').textContent = res.type === 'opaqueredirect' || res.status === 302
+    ? 'redirected (302)'
+    : `${res.status} - link did not resolve`;
+};
+
+$('stats').onclick = async () => {
+  if (!lastCode) return;
+  const res = await fetch('/urls/' + lastCode + '/stats');
+  const s = await res.json();
+  $('statsResult').textContent = res.ok
+    ? `hits: ${s.hitCount}\nlast used: ${s.lastAccessedAt || 'never'}\n` +
+      `expired: ${s.expired}\ncustom alias: ${s.customAlias}`
+    : `${res.status} ${s.detail || ''}`;
+};
+
+function escapeHtml(s) {
+  return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+}
+
+loadMetrics();
+</script>
+</body>
+</html>

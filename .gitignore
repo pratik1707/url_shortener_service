@@ -1,0 +1,10 @@
+target/
+data/
+*.db
+*.mv.db
+*.trace.db
+.idea/
+*.iml
+.vscode/
+.DS_Store
+*Zone.Identifier
