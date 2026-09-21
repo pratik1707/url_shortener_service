@@ -16,7 +16,7 @@ short-code strategy with another, under approval.
 
 ## Running it
 
-No Docker, no database to install, no API key. You need **Java 21** and **Maven 3.9+**.
+You need **Java 21** and **Maven 3.9+**.
 
 ```bash
 git clone https://github.com/pratik1707/url_shortener_service.git
